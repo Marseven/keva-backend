@@ -351,26 +351,6 @@ class EbillingService
     }
 
     /**
-     * Vérifier la signature du webhook
-     */
-    private function verifyWebhookSignature(array $callbackData): bool
-    {
-        if (!isset($callbackData['signature'])) {
-            return false;
-        }
-
-        $expectedSignature = hash(
-            'sha256',
-            $callbackData['bill_id'] .
-                $callbackData['status'] .
-                $callbackData['amount'] .
-                $this->sharedKey
-        );
-
-        return hash_equals($expectedSignature, $callbackData['signature']);
-    }
-
-    /**
      * Obtenir les méthodes de paiement disponibles
      */
     public function getAvailablePaymentMethods(): array
@@ -418,5 +398,352 @@ class EbillingService
 
         return str_starts_with($cleanPhone, $methodConfig['prefix']) &&
             strlen($cleanPhone) === $methodConfig['length'];
+    }
+
+    /**
+     * Envoyer un PUSH USSD pour Mobile Money
+     */
+    public function sendUssdPush(string $billId, string $phoneNumber, string $paymentSystem): array
+    {
+        try {
+            $ussdData = [
+                'bill_id' => $billId,
+                'phone_number' => $this->formatPhoneNumber($phoneNumber),
+                'payment_system' => $paymentSystem
+            ];
+
+            $response = Http::timeout(30)
+                ->retry(3, 1000)
+                ->post(
+                    $this->baseUrl . str_replace('{bill_id}', $billId, config('ebilling.endpoints.ussd_push')),
+                    $ussdData
+                );
+
+            if ($response->successful()) {
+                $responseData = $response->json();
+
+                Log::info('EBILLING: PUSH USSD envoyé', [
+                    'bill_id' => $billId,
+                    'phone_number' => $phoneNumber,
+                    'payment_system' => $paymentSystem
+                ]);
+
+                return [
+                    'success' => true,
+                    'message' => $responseData['message'] ?? 'PUSH USSD envoyé avec succès',
+                    'data' => $responseData
+                ];
+            }
+
+            Log::warning('EBILLING: Échec PUSH USSD', [
+                'bill_id' => $billId,
+                'status' => $response->status(),
+                'response' => $response->body()
+            ]);
+
+            return [
+                'success' => false,
+                'error' => $response->json()['message'] ?? 'Erreur lors de l\'envoi du PUSH USSD'
+            ];
+        } catch (\Exception $e) {
+            Log::error('EBILLING: Exception PUSH USSD', [
+                'bill_id' => $billId,
+                'phone_number' => $phoneNumber,
+                'error' => $e->getMessage()
+            ]);
+
+            return [
+                'success' => false,
+                'error' => 'Erreur technique lors de l\'envoi du PUSH USSD'
+            ];
+        }
+    }
+
+    /**
+     * Récupérer le statut d'une facture EBILLING
+     */
+    public function getBillStatus(string $billId): array
+    {
+        try {
+            $response = Http::timeout(15)
+                ->retry(2, 500)
+                ->get($this->baseUrl . "/api/v1/merchant/e_bills/{$billId}/status");
+
+            if ($response->successful()) {
+                $responseData = $response->json();
+
+                Log::info('EBILLING: Statut récupéré', [
+                    'bill_id' => $billId,
+                    'status' => $responseData['data']['status'] ?? 'unknown'
+                ]);
+
+                return [
+                    'success' => true,
+                    'e_bill' => $responseData['data'] ?? [],
+                    'status' => $responseData['data']['status'] ?? 'unknown',
+                    'amount' => $responseData['data']['amount'] ?? 0,
+                    'paid_at' => $responseData['data']['paid_at'] ?? null,
+                    'transaction_ref' => $responseData['data']['transaction_ref'] ?? null
+                ];
+            }
+
+            Log::warning('EBILLING: Erreur récupération statut', [
+                'bill_id' => $billId,
+                'status' => $response->status(),
+                'response' => $response->body()
+            ]);
+
+            return [
+                'success' => false,
+                'error' => 'Impossible de récupérer le statut de la facture'
+            ];
+        } catch (\Exception $e) {
+            Log::error('EBILLING: Exception récupération statut', [
+                'bill_id' => $billId,
+                'error' => $e->getMessage()
+            ]);
+
+            return [
+                'success' => false,
+                'error' => 'Erreur technique lors de la vérification du statut'
+            ];
+        }
+    }
+
+    /**
+     * Tester la connexion avec l'API EBILLING
+     */
+    public function testConnection(): array
+    {
+        $startTime = microtime(true);
+
+        try {
+            $response = Http::timeout(10)
+                ->get($this->baseUrl . '/api/v1/merchant/ping', [
+                    'merchant_id' => $this->username
+                ]);
+
+            $responseTime = round((microtime(true) - $startTime) * 1000, 2);
+
+            if ($response->successful()) {
+                return [
+                    'connection_success' => true,
+                    'status_code' => $response->status(),
+                    'response_time' => $responseTime,
+                    'message' => 'Connexion EBILLING réussie',
+                    'api_version' => $response->json()['version'] ?? 'unknown',
+                    'test_mode' => $this->testMode
+                ];
+            }
+
+            return [
+                'connection_success' => false,
+                'status_code' => $response->status(),
+                'response_time' => $responseTime,
+                'message' => 'Échec de connexion à EBILLING',
+                'error' => $response->body()
+            ];
+        } catch (\Exception $e) {
+            $responseTime = round((microtime(true) - $startTime) * 1000, 2);
+
+            return [
+                'connection_success' => false,
+                'status_code' => 0,
+                'response_time' => $responseTime,
+                'message' => 'Erreur de connexion à EBILLING',
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Valider les données d'un callback webhook
+     */
+    public function validateCallback(array $callbackData): bool
+    {
+        // Vérifier la présence des champs obligatoires
+        $requiredFields = ['bill_id', 'status', 'amount'];
+
+        foreach ($requiredFields as $field) {
+            if (!isset($callbackData[$field]) || empty($callbackData[$field])) {
+                Log::warning('EBILLING: Champ obligatoire manquant dans callback', [
+                    'missing_field' => $field,
+                    'callback_data' => $callbackData
+                ]);
+                return false;
+            }
+        }
+
+        // Vérifier la signature si présente
+        if (isset($callbackData['signature'])) {
+            return $this->verifyWebhookSignature($callbackData);
+        }
+
+        // Valider le format du bill_id
+        if (!preg_match('/^[A-Z0-9\-]{10,50}$/', $callbackData['bill_id'])) {
+            Log::warning('EBILLING: Format bill_id invalide', [
+                'bill_id' => $callbackData['bill_id']
+            ]);
+            return false;
+        }
+
+        // Valider le statut
+        $validStatuses = ['pending', 'paid', 'failed', 'cancelled', 'expired'];
+        if (!in_array($callbackData['status'], $validStatuses)) {
+            Log::warning('EBILLING: Statut invalide dans callback', [
+                'status' => $callbackData['status']
+            ]);
+            return false;
+        }
+
+        // Valider le montant
+        if (!is_numeric($callbackData['amount']) || $callbackData['amount'] <= 0) {
+            Log::warning('EBILLING: Montant invalide dans callback', [
+                'amount' => $callbackData['amount']
+            ]);
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Traiter et normaliser les données d'un callback
+     */
+    public function processCallbackData(array $callbackData): array
+    {
+        // Normaliser les données
+        $processedData = [
+            'bill_id' => trim($callbackData['bill_id']),
+            'status' => strtolower(trim($callbackData['status'])),
+            'amount' => (float) $callbackData['amount'],
+            'currency' => $callbackData['currency'] ?? 'XAF',
+            'transaction_id' => $callbackData['transaction_id'] ?? $callbackData['transactionid'] ?? null,
+            'payer_name' => $callbackData['payer_name'] ?? $callbackData['customername'] ?? null,
+            'payer_email' => $callbackData['payer_email'] ?? $callbackData['payeremail'] ?? null,
+            'payer_phone' => $callbackData['payer_phone'] ?? $callbackData['payermsisdn'] ?? null,
+            'payment_method' => $this->detectPaymentMethod($callbackData),
+            'paid_at' => $this->parseCallbackDate($callbackData),
+            'raw_data' => $callbackData,
+            'processed_at' => now()->toISOString()
+        ];
+
+        // Nettoyer le numéro de téléphone si présent
+        if ($processedData['payer_phone']) {
+            $processedData['payer_phone'] = $this->formatPhoneNumber($processedData['payer_phone']);
+        }
+
+        // Mapper le statut EBILLING vers nos statuts
+        $processedData['mapped_status'] = $this->mapEbillingStatus($processedData['status']);
+
+        Log::info('EBILLING: Données callback traitées', [
+            'bill_id' => $processedData['bill_id'],
+            'status' => $processedData['status'],
+            'mapped_status' => $processedData['mapped_status'],
+            'amount' => $processedData['amount']
+        ]);
+
+        return $processedData;
+    }
+
+    /**
+     * Détecter la méthode de paiement depuis les données callback
+     */
+    private function detectPaymentMethod(array $callbackData): ?string
+    {
+        // Chercher des indices dans les données
+        if (isset($callbackData['payment_method'])) {
+            return $callbackData['payment_method'];
+        }
+
+        // Détecter par le numéro de téléphone
+        $phone = $callbackData['payermsisdn'] ?? $callbackData['payer_phone'] ?? '';
+        if (str_starts_with($phone, '07') || str_starts_with($phone, '24107')) {
+            return 'airtel_money';
+        }
+
+        if (str_starts_with($phone, '06') || str_starts_with($phone, '24106')) {
+            return 'moov_money';
+        }
+
+        // Détecter par le gateway
+        if (isset($callbackData['gateway']) && str_contains($callbackData['gateway'], 'ORABANK')) {
+            return 'visa_mastercard';
+        }
+
+        return null;
+    }
+
+    /**
+     * Parser la date de paiement depuis le callback
+     */
+    private function parseCallbackDate(array $callbackData): ?string
+    {
+        $dateFields = ['paid_at', 'payment_date', 'transaction_date', 'date'];
+
+        foreach ($dateFields as $field) {
+            if (isset($callbackData[$field]) && !empty($callbackData[$field])) {
+                try {
+                    return \Carbon\Carbon::parse($callbackData[$field])->toISOString();
+                } catch (\Exception $e) {
+                    continue;
+                }
+            }
+        }
+
+        // Si pas de date trouvée et statut = paid, utiliser maintenant
+        if (($callbackData['status'] ?? '') === 'paid') {
+            return now()->toISOString();
+        }
+
+        return null;
+    }
+
+    /**
+     * Mapper les statuts EBILLING vers nos statuts internes
+     */
+    private function mapEbillingStatus(string $ebillingStatus): string
+    {
+        return match (strtolower($ebillingStatus)) {
+            'paid', 'completed', 'success' => 'completed',
+            'pending', 'processing' => 'processing',
+            'failed', 'error', 'cancelled', 'expired' => 'failed',
+            default => 'pending'
+        };
+    }
+
+    /**
+     * Vérifier la signature d'un webhook (version améliorée)
+     */
+    private function verifyWebhookSignature(array $callbackData): bool
+    {
+        if (!isset($callbackData['signature'])) {
+            // Si pas de signature configurée, on accepte (mode développement)
+            return !config('ebilling.webhook_secret');
+        }
+
+        $providedSignature = $callbackData['signature'];
+
+        // Construire la chaîne à signer (selon la documentation EBILLING)
+        $dataToSign = implode('|', [
+            $callbackData['bill_id'],
+            $callbackData['status'],
+            $callbackData['amount'],
+            $this->sharedKey
+        ]);
+
+        $expectedSignature = hash('sha256', $dataToSign);
+
+        $isValid = hash_equals($expectedSignature, $providedSignature);
+
+        if (!$isValid) {
+            Log::warning('EBILLING: Signature webhook invalide', [
+                'bill_id' => $callbackData['bill_id'],
+                'provided_signature' => $providedSignature,
+                'expected_signature' => $expectedSignature
+            ]);
+        }
+
+        return $isValid;
     }
 }
