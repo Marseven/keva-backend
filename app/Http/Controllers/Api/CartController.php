@@ -130,7 +130,30 @@ class CartController extends Controller
 
             // Vérifier que le produit est disponible
             if ($product->status !== 'active') {
-                return $this->errorResponse('Erreur lors de la suppression', null, 500);
+                return $this->errorResponse('Ce produit n\'est pas disponible', null, 400);
+            }
+
+            $user = $request->user();
+            $sessionId = $request->get('session_id');
+
+            $cartItem = $this->cartService->addToCart(
+                $product,
+                $request->quantity,
+                $request->get('options', []),
+                $user,
+                $sessionId
+            );
+
+            return $this->createdResponse(
+                $this->transformCartItem($cartItem),
+                'Produit ajouté au panier'
+            );
+        } catch (\Exception $e) {
+            if (str_contains($e->getMessage(), 'Stock insuffisant')) {
+                return $this->errorResponse($e->getMessage(), null, 400);
+            }
+
+            return $this->errorResponse('Erreur lors de l\'ajout au panier', null, 500);
         }
     }
 
@@ -171,7 +194,6 @@ class CartController extends Controller
             return $this->successResponse([
                 'deleted_items' => $deletedCount
             ], 'Panier vidé avec succès');
-
         } catch (\Exception $e) {
             return $this->errorResponse('Erreur lors du vidage du panier', null, 500);
         }
@@ -179,7 +201,7 @@ class CartController extends Controller
 
     /**
      * @OA\Post(
-     *     path="/api/cart/validate",
+     *     path="/api/cart/validate-cart",
      *     tags={"Panier"},
      *     summary="Valider le panier",
      *     description="Vérifier la disponibilité et les prix des articles avant commande",
@@ -205,7 +227,7 @@ class CartController extends Controller
      *     )
      * )
      */
-    public function validate(Request $request): JsonResponse
+    public function validateCart(Request $request): JsonResponse  // ← Renommé de validate() à validateCart()
     {
         try {
             $user = $request->user();
@@ -228,7 +250,6 @@ class CartController extends Controller
                 'totals' => $totals,
                 'items_count' => $cartItems->count(),
             ], $isValid ? 'Panier valide' : 'Problèmes détectés dans le panier');
-
         } catch (\Exception $e) {
             return $this->errorResponse('Erreur lors de la validation', null, 500);
         }
@@ -276,7 +297,6 @@ class CartController extends Controller
                 'unique_items' => $cartItems->count(),
                 'total_amount' => $totals['total'],
             ], 'Nombre d\'articles récupéré');
-
         } catch (\Exception $e) {
             return $this->errorResponse('Erreur lors du calcul', null, 500);
         }
@@ -376,7 +396,6 @@ class CartController extends Controller
                 'new_total' => $newTotal,
                 'savings' => $discountAmount,
             ], 'Code promo appliqué avec succès');
-
         } catch (\Exception $e) {
             return $this->errorResponse('Erreur lors de l\'application du code promo', null, 500);
         }

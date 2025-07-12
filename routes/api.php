@@ -187,7 +187,7 @@ Route::get('/products/{product}', [ProductController::class, 'show']);
 Route::get('/cart', [CartController::class, 'index']);
 Route::post('/cart', [CartController::class, 'store']);
 Route::get('/cart/count', [CartController::class, 'count']);
-Route::post('/cart/validate', [CartController::class, 'validate']);
+Route::post('/cart/validate-cart', [CartController::class, 'validateCart']);
 
 
 /*
