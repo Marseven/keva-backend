@@ -23,6 +23,35 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *     @OA\Property(property="created_at", type="string", format="date-time", example="2025-01-01T12:00:00Z"),
  *     @OA\Property(property="updated_at", type="string", format="date-time", example="2025-01-01T12:00:00Z")
  * )
+ * 
+ * @OA\Schema(
+ *     schema="CartItem",
+ *     type="object",
+ *     title="Article du panier",
+ *     @OA\Property(property="id", type="integer", example=1),
+ *     @OA\Property(property="product_id", type="integer", example=42),
+ *     @OA\Property(property="quantity", type="integer", example=2),
+ *     @OA\Property(property="unit_price", type="number", format="float", example=2500),
+ *     @OA\Property(property="total_price", type="number", format="float", example=5000),
+ *     @OA\Property(property="formatted_total_price", type="string", example="5 000 XAF"),
+ *     @OA\Property(property="product_options", type="array", @OA\Items(type="string")),
+ *     @OA\Property(property="product", ref="#/components/schemas/Product")
+ * )
+ * 
+ * @OA\Schema(
+ *     schema="CartTotals",
+ *     type="object",
+ *     title="Totaux du panier",
+ *     @OA\Property(property="subtotal", type="number", format="float", example=15000),
+ *     @OA\Property(property="tax_amount", type="number", format="float", example=1500),
+ *     @OA\Property(property="shipping_amount", type="number", format="float", example=2000),
+ *     @OA\Property(property="total_amount", type="number", format="float", example=18500),
+ *     @OA\Property(property="formatted_subtotal", type="string", example="15 000 XAF"),
+ *     @OA\Property(property="formatted_tax", type="string", example="1 500 XAF"),
+ *     @OA\Property(property="formatted_shipping", type="string", example="2 000 XAF"),
+ *     @OA\Property(property="formatted_total", type="string", example="18 500 XAF"),
+ *     @OA\Property(property="items_count", type="integer", example=3)
+ * )
  */
 class Cart extends Model
 {

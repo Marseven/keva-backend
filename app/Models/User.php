@@ -8,6 +8,7 @@ use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 /**
  * @OA\Schema(
@@ -105,6 +106,85 @@ class User extends Authenticatable
         return $this->hasMany(Cart::class);
     }
 
+    public function stores(): HasMany
+    {
+        return $this->hasMany(Store::class);
+    }
+
+    public function activeStores(): HasMany
+    {
+        return $this->hasMany(Store::class)->where('is_active', true);
+    }
+
+    /**
+     * Get the stores that the user is associated with (many-to-many).
+     */
+    public function managedStores(): BelongsToMany
+    {
+        return $this->belongsToMany(Store::class, 'store_user')
+            ->withPivot(['role', 'is_active', 'permissions', 'joined_at'])
+            ->withTimestamps();
+    }
+
+    /**
+     * Get the active stores that the user is associated with.
+     */
+    public function activeManagedStores(): BelongsToMany
+    {
+        return $this->belongsToMany(Store::class, 'store_user')
+            ->withPivot(['role', 'is_active', 'permissions', 'joined_at'])
+            ->withTimestamps()
+            ->wherePivot('is_active', true);
+    }
+
+    /**
+     * Get stores where user is owner.
+     */
+    public function ownedStores(): BelongsToMany
+    {
+        return $this->belongsToMany(Store::class, 'store_user')
+            ->withPivot(['role', 'is_active', 'permissions', 'joined_at'])
+            ->withTimestamps()
+            ->wherePivot('role', 'owner')
+            ->wherePivot('is_active', true);
+    }
+
+    /**
+     * Get stores where user is admin.
+     */
+    public function administeredStores(): BelongsToMany
+    {
+        return $this->belongsToMany(Store::class, 'store_user')
+            ->withPivot(['role', 'is_active', 'permissions', 'joined_at'])
+            ->withTimestamps()
+            ->wherePivot('role', 'admin')
+            ->wherePivot('is_active', true);
+    }
+
+    /**
+     * Get stores where user is manager.
+     */
+    public function managedStoresAsManager(): BelongsToMany
+    {
+        return $this->belongsToMany(Store::class, 'store_user')
+            ->withPivot(['role', 'is_active', 'permissions', 'joined_at'])
+            ->withTimestamps()
+            ->wherePivot('role', 'manager')
+            ->wherePivot('is_active', true);
+    }
+
+    /**
+     * Get stores where user is staff.
+     */
+    public function staffStores(): BelongsToMany
+    {
+        return $this->belongsToMany(Store::class, 'store_user')
+            ->withPivot(['role', 'is_active', 'permissions', 'joined_at'])
+            ->withTimestamps()
+            ->wherePivot('role', 'staff')
+            ->wherePivot('is_active', true);
+    }
+
     // Accessors
     public function getFullNameAttribute(): string
     {
@@ -148,5 +228,79 @@ class User extends Authenticatable
     public function updateLastLogin(): void
     {
         $this->update(['last_login_at' => now()]);
+    }
+
+    /**
+     * Check if user has access to a specific store.
+     */
+    public function hasStoreAccess(Store $store): bool
+    {
+        return $this->managedStores()->where('store_id', $store->id)->exists();
+    }
+
+    /**
+     * Check if user has specific role in a store.
+     */
+    public function hasRoleInStore(Store $store, string $role): bool
+    {
+        return $this->managedStores()
+            ->where('store_id', $store->id)
+            ->wherePivot('role', $role)
+            ->wherePivot('is_active', true)
+            ->exists();
+    }
+
+    /**
+     * Get user's role in a specific store.
+     */
+    public function getRoleInStore(Store $store): ?string
+    {
+        $relationship = $this->managedStores()
+            ->where('store_id', $store->id)
+            ->wherePivot('is_active', true)
+            ->first();
+
+        return $relationship ? $relationship->pivot->role : null;
+    }
+
+    /**
+     * Check if user can manage a store (owner, admin, or manager).
+     */
+    public function canManageStore(Store $store): bool
+    {
+        $role = $this->getRoleInStore($store);
+        return in_array($role, ['owner', 'admin', 'manager']);
+    }
+
+    /**
+     * Check if user is owner of a store.
+     */
+    public function isOwnerOfStore(Store $store): bool
+    {
+        return $this->hasRoleInStore($store, 'owner');
+    }
+
+    /**
+     * Check if user is admin of a store.
+     */
+    public function isAdminOfStore(Store $store): bool
+    {
+        return $this->hasRoleInStore($store, 'admin');
+    }
+
+    /**
+     * Check if user is manager of a store.
+     */
+    public function isManagerOfStore(Store $store): bool
+    {
+        return $this->hasRoleInStore($store, 'manager');
+    }
+
+    /**
+     * Check if user is staff of a store.
+     */
+    public function isStaffOfStore(Store $store): bool
+    {
+        return $this->hasRoleInStore($store, 'staff');
     }
 }

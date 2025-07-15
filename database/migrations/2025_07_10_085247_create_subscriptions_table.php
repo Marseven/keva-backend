@@ -10,8 +10,8 @@ return new class extends Migration
     {
         Schema::create('subscriptions', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
-            $table->foreignId('plan_id')->constrained()->onDelete('cascade');
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('plan_id');
 
             // Informations abonnement
             $table->string('subscription_id')->unique(); // SUB-2024-0001
@@ -24,8 +24,8 @@ return new class extends Migration
             ])->default('pending');
 
             // Dates importantes
-            $table->timestamp('starts_at');
-            $table->timestamp('ends_at');
+            $table->timestamp('starts_at')->nullable();
+            $table->timestamp('ends_at')->nullable();
             $table->timestamp('trial_ends_at')->nullable();
             $table->timestamp('cancelled_at')->nullable();
 

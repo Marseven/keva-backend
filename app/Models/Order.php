@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Builder;
  *     @OA\Property(property="id", type="integer", example=101),
  *     @OA\Property(property="order_number", type="string", example="KEV-202507-0001"),
  *     @OA\Property(property="user_id", type="integer", example=12),
+ *     @OA\Property(property="store_id", type="integer", nullable=true, example=5),
  *     @OA\Property(property="subtotal", type="number", format="float", example=50000),
  *     @OA\Property(property="tax_amount", type="number", format="float", example=4500),
  *     @OA\Property(property="shipping_amount", type="number", format="float", example=3000),
@@ -69,6 +70,7 @@ class Order extends Model
     protected $fillable = [
         'order_number',
         'user_id',
+        'store_id',
         'subtotal',
         'tax_amount',
         'shipping_amount',
@@ -119,6 +121,11 @@ class Order extends Model
         return $this->hasOne(Invoice::class);
     }
 
+    public function store(): BelongsTo
+    {
+        return $this->belongsTo(Store::class);
+    }
+
     // Scopes
     public function scopeByStatus(Builder $query, string $status): void
     {
@@ -143,6 +150,11 @@ class Order extends Model
     public function scopeRecent(Builder $query): void
     {
         $query->orderBy('created_at', 'desc');
+    }
+
+    public function scopeByStore(Builder $query, $storeId): void
+    {
+        $query->where('store_id', $storeId);
     }
 
     // Accessors
@@ -270,6 +282,94 @@ class Order extends Model
         }
     }
 
+    /**
+     * Validate that all products in the order belong to the same store.
+     */
+    public function validateSameStore(array $productIds): bool
+    {
+        $stores = Product::whereIn('id', $productIds)
+            ->whereNotNull('store_id')
+            ->distinct()
+            ->pluck('store_id')
+            ->toArray();
+
+        return count($stores) <= 1;
+    }
+
+    /**
+     * Determine store_id based on products in the order.
+     */
+    public function determineStoreId(array $productIds): ?int
+    {
+        $storeId = Product::whereIn('id', $productIds)
+            ->whereNotNull('store_id')
+            ->value('store_id');
+
+        return $storeId;
+    }
+
+    /**
+     * Set store_id based on order items.
+     */
+    public function setStoreFromItems(): void
+    {
+        $productIds = $this->items()->pluck('product_id')->toArray();
+        
+        if (!empty($productIds)) {
+            $storeId = $this->determineStoreId($productIds);
+            if ($storeId) {
+                $this->update(['store_id' => $storeId]);
+            }
+        }
+    }
+
+    /**
+     * Check if order can accept products from a specific store.
+     */
+    public function canAcceptProductsFromStore(?int $storeId): bool
+    {
+        // If order has no store_id, it can accept products from any store
+        if (!$this->store_id) {
+            return true;
+        }
+
+        // If product has no store_id, it can be added to any order
+        if (!$storeId) {
+            return true;
+        }
+
+        // Both order and product must have same store_id
+        return $this->store_id === $storeId;
+    }
+
+    /**
+     * Validate that a product can be added to this order.
+     */
+    public function canAddProduct(Product $product): bool
+    {
+        return $this->canAcceptProductsFromStore($product->store_id);
+    }
+
+    /**
+     * Get all products in this order grouped by store.
+     */
+    public function getProductsByStore(): array
+    {
+        $products = [];
+        
+        foreach ($this->items as $item) {
+            $storeId = $item->product->store_id ?? 'no_store';
+            
+            if (!isset($products[$storeId])) {
+                $products[$storeId] = [];
+            }
+            
+            $products[$storeId][] = $item;
+        }
+        
+        return $products;
+    }
+
     protected static function boot()
     {
         parent::boot();
@@ -278,6 +378,11 @@ class Order extends Model
             if (empty($order->order_number)) {
                 $order->order_number = $order->generateOrderNumber();
             }
+        });
+
+        static::created(function ($order) {
+            // Set store_id after order is created if it has items
+            $order->setStoreFromItems();
         });
     }
 }

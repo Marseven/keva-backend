@@ -17,6 +17,7 @@ use Illuminate\Support\Str;
  *     @OA\Property(property="id", type="integer", example=1001),
  *     @OA\Property(property="user_id", type="integer", example=1),
  *     @OA\Property(property="category_id", type="integer", example=3),
+ *     @OA\Property(property="store_id", type="integer", nullable=true, example=1),
  *     @OA\Property(property="name", type="string", example="T-shirt KEVA Premium"),
  *     @OA\Property(property="slug", type="string", example="tshirt-keva-premium"),
  *     @OA\Property(property="description", type="string", example="Un t-shirt confortable en coton bio."),
@@ -72,6 +73,7 @@ class Product extends Model
     protected $fillable = [
         'user_id',
         'category_id',
+        'store_id',
         'name',
         'slug',
         'description',
@@ -130,6 +132,11 @@ class Product extends Model
         return $this->belongsTo(Category::class);
     }
 
+    public function store(): BelongsTo
+    {
+        return $this->belongsTo(Store::class);
+    }
+
     public function images(): HasMany
     {
         return $this->hasMany(ProductImage::class);
@@ -180,6 +187,11 @@ class Product extends Model
     public function scopeByUser(Builder $query, $userId): void
     {
         $query->where('user_id', $userId);
+    }
+
+    public function scopeByStore(Builder $query, $storeId): void
+    {
+        $query->where('store_id', $storeId);
     }
 
     public function scopeSearch(Builder $query, string $search): void

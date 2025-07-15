@@ -242,7 +242,7 @@ class ProductController extends Controller
      *         @OA\JsonContent(
      *             @OA\Property(property="success", type="boolean", example=true),
      *             @OA\Property(property="message", type="string", example="Produit récupéré avec succès"),
-     *             @OA\Property(property="data", ref="#/components/schemas/ProductDetail")
+     *             @OA\Property(property="data", ref="#/components/schemas/Product")
      *         )
      *     ),
      *     @OA\Response(

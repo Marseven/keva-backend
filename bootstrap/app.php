@@ -7,6 +7,8 @@ use App\Http\Middleware\AdminMiddleware;
 use App\Http\Middleware\SubscriptionMiddleware;
 use App\Http\Middleware\EnsureActiveUser;
 use App\Http\Middleware\RateLimitApiMiddleware;
+use App\Http\Middleware\SwaggerMiddleware;
+use App\Http\Middleware\StoreAccessMiddleware;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -21,6 +23,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'subscription' => SubscriptionMiddleware::class,
             'active_user' => EnsureActiveUser::class,
             'api_rate_limit' => RateLimitApiMiddleware::class,
+            'swagger' => SwaggerMiddleware::class,
+            'store.access' => StoreAccessMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -22,7 +22,7 @@ class AuthController extends Controller
 
     /**
      * @OA\Post(
-     *     path="/api/register",
+     *     path="/api/auth/register",
      *     tags={"Authentification"},
      *     summary="Inscription d'un nouvel utilisateur",
      *     description="Créer un nouveau compte utilisateur avec les informations de l'entreprise",
@@ -109,7 +109,7 @@ class AuthController extends Controller
 
     /**
      * @OA\Post(
-     *     path="/api/login",
+     *     path="/api/auth/login",
      *     tags={"Authentification"},
      *     summary="Connexion utilisateur",
      *     description="Authentifier un utilisateur avec email et mot de passe",
@@ -191,7 +191,7 @@ class AuthController extends Controller
 
     /**
      * @OA\Post(
-     *     path="/api/logout",
+     *     path="/api/auth/logout",
      *     tags={"Authentification"},
      *     summary="Déconnexion utilisateur",
      *     description="Déconnecter l'utilisateur et révoquer le token",
@@ -222,7 +222,7 @@ class AuthController extends Controller
 
     /**
      * @OA\Post(
-     *     path="/api/logout-all",
+     *     path="/api/auth/logout-all",
      *     tags={"Authentification"},
      *     summary="Déconnexion de tous les appareils",
      *     description="Révoquer tous les tokens de l'utilisateur",
