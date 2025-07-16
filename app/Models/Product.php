@@ -59,9 +59,17 @@ use Illuminate\Support\Str;
  *     @OA\Property(property="discount_percentage", type="integer", nullable=true, readOnly=true, example=17),
  *     @OA\Property(property="is_on_sale", type="boolean", readOnly=true, example=true),
  *     @OA\Property(property="is_in_stock", type="boolean", readOnly=true, example=true),
+ *     @OA\Property(property="is_available", type="boolean", readOnly=true, example=true, description="Product availability considering stock and backorder settings"),
+ *     @OA\Property(property="availability_status", type="string", readOnly=true, example="in_stock", description="Current availability status: unavailable, unlimited, backorder, out_of_stock, low_stock, in_stock"),
  *     @OA\Property(property="is_low_stock", type="boolean", readOnly=true, example=false),
  *     @OA\Property(property="stock_status", type="string", readOnly=true, example="in_stock"),
  *     @OA\Property(property="featured_image_url", type="string", readOnly=true, example="https://keva.test/storage/products/tshirt.jpg"),
+ *     @OA\Property(property="store", type="object", nullable=true, readOnly=true,
+ *         @OA\Property(property="id", type="integer", example=1),
+ *         @OA\Property(property="name", type="string", example="Boutique KEVA"),
+ *         @OA\Property(property="slug", type="string", example="boutique-keva"),
+ *         @OA\Property(property="whatsapp_number", type="string", example="+241123456789")
+ *     ),
  *     @OA\Property(property="created_at", type="string", format="date-time", example="2025-07-09T09:00:00Z"),
  *     @OA\Property(property="updated_at", type="string", format="date-time", example="2025-07-10T12:00:00Z")
  * )
@@ -179,6 +187,18 @@ class Product extends Model
         });
     }
 
+    public function scopeAvailable(Builder $query): void
+    {
+        $query->where('status', 'active')
+            ->whereNotNull('published_at')
+            ->where('published_at', '<=', now())
+            ->where(function ($q) {
+                $q->where('track_inventory', false)
+                    ->orWhere('stock_quantity', '>', 0)
+                    ->orWhere('allow_backorder', true);
+            });
+    }
+
     public function scopeByCategory(Builder $query, $categoryId): void
     {
         $query->where('category_id', $categoryId);
@@ -238,6 +258,48 @@ class Product extends Model
         if (!$this->track_inventory) return true;
 
         return $this->stock_quantity > 0 || $this->allow_backorder;
+    }
+
+    public function getIsAvailableAttribute(): bool
+    {
+        // Product is available if it's published and either has stock or allows backorder
+        if ($this->status !== 'active' || $this->published_at === null || $this->published_at > now()) {
+            return false;
+        }
+
+        // If inventory tracking is disabled, product is always available
+        if (!$this->track_inventory) {
+            return true;
+        }
+
+        // If stock_quantity is 0, only available if allow_backorder is true
+        if ($this->stock_quantity <= 0) {
+            return $this->allow_backorder;
+        }
+
+        // Has stock, so it's available
+        return true;
+    }
+
+    public function getAvailabilityStatusAttribute(): string
+    {
+        if (!$this->is_available) {
+            return 'unavailable';
+        }
+
+        if (!$this->track_inventory) {
+            return 'unlimited';
+        }
+
+        if ($this->stock_quantity <= 0) {
+            return $this->allow_backorder ? 'backorder' : 'out_of_stock';
+        }
+
+        if ($this->stock_quantity <= $this->min_stock_level) {
+            return 'low_stock';
+        }
+
+        return 'in_stock';
     }
 
     public function getIsLowStockAttribute(): bool

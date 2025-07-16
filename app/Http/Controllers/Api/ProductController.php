@@ -258,7 +258,7 @@ class ProductController extends Controller
         $product->incrementViews();
 
         // Charger les relations
-        $product->load(['category', 'user', 'images']);
+        $product->load(['category', 'user', 'images', 'store']);
 
         return $this->successResponse(
             $this->transformProductDetail($product),
@@ -494,7 +494,10 @@ class ProductController extends Controller
      *             @OA\Property(property="message", type="string", example="Stock mis à jour"),
      *             @OA\Property(property="data", type="object",
      *                 @OA\Property(property="stock_quantity", type="integer", example=50),
-     *                 @OA\Property(property="stock_status", type="string", example="in_stock")
+     *                 @OA\Property(property="stock_status", type="string", example="in_stock"),
+     *                 @OA\Property(property="is_available", type="boolean", example=true),
+     *                 @OA\Property(property="availability_status", type="string", example="in_stock"),
+     *                 @OA\Property(property="is_low_stock", type="boolean", example=false)
      *             )
      *         )
      *     )
@@ -526,6 +529,8 @@ class ProductController extends Controller
             return $this->successResponse([
                 'stock_quantity' => $updatedProduct->stock_quantity,
                 'stock_status' => $updatedProduct->stock_status,
+                'is_available' => $updatedProduct->is_available,
+                'availability_status' => $updatedProduct->availability_status,
                 'is_low_stock' => $updatedProduct->is_low_stock,
             ], 'Stock mis à jour avec succès');
         } catch (\Exception $e) {
@@ -681,6 +686,8 @@ class ProductController extends Controller
             'is_featured' => $product->is_featured,
             'is_digital' => $product->is_digital,
             'is_in_stock' => $product->is_in_stock,
+            'is_available' => $product->is_available,
+            'availability_status' => $product->availability_status,
             'stock_status' => $product->stock_status,
             'average_rating' => $product->average_rating,
             'reviews_count' => $product->reviews_count,
@@ -688,6 +695,12 @@ class ProductController extends Controller
                 'id' => $product->category->id,
                 'name' => $product->category->name,
                 'slug' => $product->category->slug,
+            ] : null,
+            'store' => $product->store ? [
+                'id' => $product->store->id,
+                'name' => $product->store->name,
+                'slug' => $product->store->slug,
+                'whatsapp_number' => $product->store->whatsapp_number,
             ] : null,
             'created_at' => $product->created_at,
             'updated_at' => $product->updated_at,

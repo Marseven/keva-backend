@@ -16,6 +16,8 @@ use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\EbillingCallbackController;
+use App\Http\Controllers\Api\StoreController;
+use App\Http\Controllers\Api\StoreStaffController;
 
 /*
 |--------------------------------------------------------------------------
@@ -191,6 +193,9 @@ Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/search', [ProductController::class, 'search']);
 Route::get('/products/{product}', [ProductController::class, 'show']);
 
+// Store products (public access)
+Route::get('/stores/{store}/products', [StoreController::class, 'publicProducts']);
+
 // Panier public (pour les utilisateurs non connectés)
 Route::get('/cart', [CartController::class, 'index']);
 Route::post('/cart', [CartController::class, 'store']);
@@ -291,6 +296,23 @@ Route::middleware(['auth:sanctum', 'active_user'])->group(function () {
     // Gestion des abonnements (sera ajouté dans la prochaine partie)
     // Route::get('/subscriptions', [SubscriptionController::class, 'index']);
     // Route::post('/subscriptions', [SubscriptionController::class, 'subscribe']);
+
+    // Store Management Routes
+    Route::apiResource('stores', StoreController::class);
+    Route::get('/stores/{store}/manage/products', [StoreController::class, 'products']);
+    Route::middleware('store.access:manage')->group(function () {
+        Route::get('/stores/{store}/orders', [StoreController::class, 'orders']);
+        Route::get('/stores/{store}/analytics', [StoreController::class, 'analytics']);
+    });
+    
+    // Store Staff Management Routes - Admin/Owner only
+    Route::middleware('store.access:admin')->group(function () {
+        Route::get('/stores/{store}/staff', [StoreStaffController::class, 'index']);
+        Route::post('/stores/{store}/staff', [StoreStaffController::class, 'store']);
+        Route::get('/stores/{store}/staff/{user}', [StoreStaffController::class, 'show']);
+        Route::put('/stores/{store}/staff/{user}', [StoreStaffController::class, 'update']);
+        Route::delete('/stores/{store}/staff/{user}', [StoreStaffController::class, 'destroy']);
+    });
 
 });
 

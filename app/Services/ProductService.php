@@ -132,7 +132,7 @@ class ProductService
      */
     public function searchProducts(array $filters = [], int $perPage = 12): LengthAwarePaginator
     {
-        $query = Product::query()->with(['category', 'user']);
+        $query = Product::query()->with(['category', 'user', 'store']);
 
         // Recherche textuelle
         if (!empty($filters['search'])) {

@@ -222,10 +222,10 @@ class StoreController extends Controller
 
     /**
      * @OA\Get(
-     *     path="/api/stores/{store}/products",
+     *     path="/api/stores/{store}/manage/products",
      *     tags={"Store Management"},
-     *     summary="Get store products",
-     *     description="Get all products for a specific store",
+     *     summary="Get store products (management)",
+     *     description="Get all products for a specific store (requires access to store)",
      *     security={{"sanctum":{}}},
      *     @OA\Parameter(
      *         name="store",
@@ -249,9 +249,169 @@ class StoreController extends Controller
     {
         $this->authorize('view', $store);
 
-        $products = $store->products()->with(['user', 'category'])->get();
+        $products = $store->products()->with(['user', 'category', 'store'])->get();
+        
+        // Transform products using the same method as ProductController
+        $transformedProducts = $products->map(function ($product) {
+            return $this->transformProduct($product);
+        });
 
-        return $this->successResponse($products, 'Store products retrieved successfully');
+        return $this->successResponse($transformedProducts, 'Store products retrieved successfully');
+    }
+
+    /**
+     * @OA\Get(
+     *     path="/api/stores/{slug}/products",
+     *     tags={"Store Management"},
+     *     summary="Get store products by slug (public)",
+     *     description="Get all active products for a specific store using store slug - public access",
+     *     @OA\Parameter(
+     *         name="slug",
+     *         in="path",
+     *         required=true,
+     *         @OA\Schema(type="string"),
+     *         description="Store slug"
+     *     ),
+     *     @OA\Parameter(
+     *         name="per_page",
+     *         in="query",
+     *         required=false,
+     *         @OA\Schema(type="integer", default=12, maximum=50),
+     *         description="Number of products per page"
+     *     ),
+     *     @OA\Parameter(
+     *         name="category_id",
+     *         in="query",
+     *         required=false,
+     *         @OA\Schema(type="integer"),
+     *         description="Filter by category ID"
+     *     ),
+     *     @OA\Parameter(
+     *         name="search",
+     *         in="query",
+     *         required=false,
+     *         @OA\Schema(type="string"),
+     *         description="Search products by name or description"
+     *     ),
+     *     @OA\Parameter(
+     *         name="sort_by",
+     *         in="query",
+     *         required=false,
+     *         @OA\Schema(type="string", enum={"name", "price", "created_at", "popularity"}, default="created_at"),
+     *         description="Sort products by field"
+     *     ),
+     *     @OA\Parameter(
+     *         name="sort_order",
+     *         in="query",
+     *         required=false,
+     *         @OA\Schema(type="string", enum={"asc", "desc"}, default="desc"),
+     *         description="Sort order"
+     *     ),
+     *     @OA\Parameter(
+     *         name="available_only",
+     *         in="query",
+     *         required=false,
+     *         @OA\Schema(type="boolean", default=false),
+     *         description="Show only available products"
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Store products retrieved successfully",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string", example="Store products retrieved successfully"),
+     *             @OA\Property(property="data", type="array", @OA\Items(ref="#/components/schemas/Product")),
+     *             @OA\Property(property="pagination", ref="#/components/schemas/Pagination"),
+     *             @OA\Property(property="store", type="object",
+     *                 @OA\Property(property="id", type="integer", example=1),
+     *                 @OA\Property(property="name", type="string", example="Ma Boutique"),
+     *                 @OA\Property(property="slug", type="string", example="ma-boutique"),
+     *                 @OA\Property(property="whatsapp_number", type="string", example="+24177123456"),
+     *                 @OA\Property(property="description", type="string", example="Description de ma boutique")
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=404,
+     *         description="Store not found",
+     *         @OA\JsonContent(ref="#/components/schemas/NotFoundError")
+     *     )
+     * )
+     */
+    public function publicProducts(Request $request, Store $store): JsonResponse
+    {
+        // Only show active stores
+        if (!$store->is_active) {
+            return $this->errorResponse('Store not found', null, 404);
+        }
+
+        $perPage = min($request->get('per_page', 12), 50);
+        $sortBy = $request->get('sort_by', 'created_at');
+        $sortOrder = $request->get('sort_order', 'desc');
+        $availableOnly = $request->boolean('available_only', false);
+
+        // Build query for store products
+        $query = $store->products()
+            ->published() // Only published products
+            ->with(['category', 'user', 'store']);
+
+        // Apply filters
+        if ($request->filled('category_id')) {
+            $query->where('category_id', $request->get('category_id'));
+        }
+
+        if ($request->filled('search')) {
+            $search = $request->get('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('description', 'like', "%{$search}%")
+                  ->orWhere('short_description', 'like', "%{$search}%");
+            });
+        }
+
+        if ($availableOnly) {
+            $query->available();
+        }
+
+        // Apply sorting
+        switch ($sortBy) {
+            case 'name':
+                $query->orderBy('name', $sortOrder);
+                break;
+            case 'price':
+                $query->orderBy('price', $sortOrder);
+                break;
+            case 'popularity':
+                $query->orderBy('views_count', 'desc')
+                      ->orderBy('sales_count', 'desc');
+                break;
+            case 'created_at':
+            default:
+                $query->orderBy('created_at', $sortOrder);
+                break;
+        }
+
+        $products = $query->paginate($perPage);
+
+        // Transform products using the same method as other endpoints
+        $transformedProducts = $products->getCollection()->map(function ($product) {
+            return $this->transformProduct($product);
+        });
+
+        // Store information for response
+        $storeInfo = [
+            'id' => $store->id,
+            'name' => $store->name,
+            'slug' => $store->slug,
+            'whatsapp_number' => $store->whatsapp_number,
+            'description' => $store->description,
+        ];
+
+        return $this->paginatedResponse(
+            $products->setCollection($transformedProducts),
+            'Store products retrieved successfully',
+            ['store' => $storeInfo]
+        );
     }
 
     /**
@@ -391,5 +551,52 @@ class StoreController extends Controller
         ];
 
         return $this->successResponse($analytics, 'Store analytics retrieved successfully');
+    }
+
+    /**
+     * Transform a product for API response
+     */
+    private function transformProduct(Product $product): array
+    {
+        return [
+            'id' => $product->id,
+            'name' => $product->name,
+            'slug' => $product->slug,
+            'short_description' => $product->short_description,
+            'price' => $product->price,
+            'formatted_price' => $product->formatted_price,
+            'compare_price' => $product->compare_price,
+            'formatted_compare_price' => $product->formatted_compare_price,
+            'discount_percentage' => $product->discount_percentage,
+            'is_on_sale' => $product->is_on_sale,
+            'sku' => $product->sku,
+            'featured_image_url' => $product->featured_image_url,
+            'condition' => $product->condition,
+            'status' => $product->status,
+            'is_featured' => $product->is_featured,
+            'is_digital' => $product->is_digital,
+            'is_in_stock' => $product->is_in_stock,
+            'is_available' => $product->is_available,
+            'availability_status' => $product->availability_status,
+            'stock_status' => $product->stock_status,
+            'track_inventory' => $product->track_inventory,
+            'stock_quantity' => $product->stock_quantity,
+            'allow_backorder' => $product->allow_backorder,
+            'average_rating' => $product->average_rating,
+            'reviews_count' => $product->reviews_count,
+            'category' => $product->category ? [
+                'id' => $product->category->id,
+                'name' => $product->category->name,
+                'slug' => $product->category->slug,
+            ] : null,
+            'store' => $product->store ? [
+                'id' => $product->store->id,
+                'name' => $product->store->name,
+                'slug' => $product->store->slug,
+                'whatsapp_number' => $product->store->whatsapp_number,
+            ] : null,
+            'created_at' => $product->created_at,
+            'updated_at' => $product->updated_at,
+        ];
     }
 }
